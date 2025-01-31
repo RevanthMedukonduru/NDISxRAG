@@ -329,6 +329,7 @@ def chat_page():
             # Prepare and display assistant response
             with st.chat_message("assistant"):
                 message_placeholder = st.empty()
+                full_response_container = st.container()
                 message_placeholder.markdown("Your AI Assistant is analysing...")
                 
                 try:
@@ -359,8 +360,15 @@ def chat_page():
                             "citations": citations
                         })
                     
-                    # Update the placeholder with the response
-                    message_placeholder.markdown(cleaned_response)
+                    # Update the display with both response and citations
+                    with full_response_container:
+                        st.markdown(cleaned_response)
+                        if citations:
+                            with st.expander("Sources", expanded=False):
+                                st.markdown(f"- {citations}")
+                    
+                    # Clear the placeholder
+                    message_placeholder.empty()
                     
                 except requests.RequestException as e:
                     error_msg = f"**Error:** Failed to get response. {str(e)}"
@@ -373,7 +381,7 @@ def chat_page():
                         })
 
     # Add a clear chat button
-    if st.sidebar.button("Clear Chat", help="Click to clear the chat history"):
+    if st.sidebar.button("Clear Chat"):
         st.session_state.messages = []
         st.rerun()
     
