@@ -1,0 +1,119 @@
+version: "3.9"
+
+services:
+  # -----------------------
+  # Django Web Service
+  # -----------------------
+  web:
+    build: .
+    container_name: web
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+    volumes:
+      - .:/app  # So changes on host reflect inside container (dev mode)
+    ports:
+      - "8000:8000"  # Host port 8000 -> Container port 8000
+    depends_on:
+      redis:
+        condition: service_healthy 
+      mysql:
+        condition: service_healthy
+    environment:
+      # Point Celery to the Redis container for broker & result
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      DB_HOST: mysql  
+      DB_PORT: "${DB_MYSQL_PORT}"  
+      DB_NAME: "${DB_MYSQL_NAME}"  
+      DB_USER: "${DB_MYSQL_USER}"  
+      DB_PASSWORD: "${DB_MYSQL_PASSWORD}"  
+
+  # -----------------------
+  # Celery Worker
+  # -----------------------
+  celery:
+    build: .
+    container_name: celery_worker
+    command: celery -A NDISxRAG worker -l info
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - DB_HOST=mysql
+      - DB_PORT=${DB_MYSQL_PORT}
+      - DB_NAME=${DB_MYSQL_NAME}
+      - DB_USER=${DB_MYSQL_USER}
+      - DB_PASSWORD=${DB_MYSQL_PASSWORD}
+
+  # -----------------------
+  # Redis (Broker & Result)
+  # -----------------------
+  redis:
+    image: redis:latest
+    container_name: redis_broker
+    ports:
+      - "6380:6379"
+    # Add a healthcheck here:
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # -----------------------
+  # Qdrant Service
+  # -----------------------
+  qdrantdb:
+    container_name: qdrantdb
+    image: qdrant/qdrant
+    restart: always
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - ./qdrant_data:/qdrant/storage
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: "4g"
+
+  # -----------------------
+  # MySQL Database
+  # -----------------------
+  mysql:
+    container_name: mysql
+    image: mysql:8.0.31
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: "${DB_MYSQL_PASSWORD}" 
+      MYSQL_DATABASE: "${DB_MYSQL_NAME}" 
+      MYSQL_USER: "${DB_MYSQL_USER}"  
+      MYSQL_PASSWORD: "${DB_MYSQL_PASSWORD}"  
+    ports:
+      - "${DB_MYSQL_PORT}:3306"
+    volumes:
+      - ./mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 5s
+      retries: 10
+      interval: 10s  
+
+  # -----------------------
+  # Streamlit Frontend
+  # -----------------------
+  streamlit:
+    build: .
+    container_name: streamlit_app
+    # Adjust "streamlit_app.py" to the actual name/path of your Streamlit script
+    command: streamlit run app.py --server.address=0.0.0.0 --server.port=8501
+    volumes:
+      - .:/app
+    ports:
+      - "8501:8501"
+    depends_on:
+      - web

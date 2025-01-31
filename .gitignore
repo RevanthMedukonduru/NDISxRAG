@@ -1,0 +1,15 @@
+agents/__pycache__/*
+app/__pycache__/*
+app/migrations/__pycache__/*
+Embedding/__pycache__/*
+NDISxRAG/__pycache__/*
+observability/__pycache__/*
+prompts/__pycache__/*
+
+
+.env
+QdrantInMemory.ipynb
+uploads/*
+logs/*
+qdrant_data/*
+mysql_data/*
