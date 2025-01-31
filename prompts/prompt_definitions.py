@@ -119,6 +119,7 @@ Generate a final response based on the provided context that:
    - Key data points and statistics
    - Specific examples and evidence
    - Important context about data sources or calculations
+   - Never reveal any code internally used to generate the response.
 2. Maintains numerical details, measurements, and DataFrame results
 3. Eliminates redundancies and unnecessary explanations
 4. Restructures for clarity while keeping all relevant context

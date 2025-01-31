@@ -339,8 +339,14 @@ def chat_page():
                 response.raise_for_status()
                 
                 # Clean and display response
-                cleaned_response = clean_markdown(response.text)
+                cleaned_response = clean_markdown(response.json().get("response", ""))
+                citations = response.json().get("citations", "")
                 message_placeholder.markdown(cleaned_response)
+                
+                # place the citations in the same message placeholder, with expander
+                if citations:
+                    with st.expander("Sources", expanded=False):
+                        st.markdown(f"- {citations}")
                 
                 # Store assistant response
                 st.session_state.messages.append({
