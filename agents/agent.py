@@ -141,6 +141,7 @@ class AgentState(TypedDict):
     chat_history: List[str]
     intermediate_steps: List[tuple[str, Any]]
     final_response: str
+    citations: List[str]
 
 # ----- Helper Functions -----
 def _format_chat_history(chat_history: List[str]) -> str:
@@ -152,13 +153,37 @@ def _format_chat_history(chat_history: List[str]) -> str:
     """
     return "\n".join([f"{msg['role']}: {msg['content']}" for msg in chat_history])
 
-def _get_formatted_dataframe(dataframe: pd.DataFrame, documents: List[Document]) -> str:
-    """
-    Get the formatted DataFrame for display purposes.
-    """
-    # Document has metadata, in metadata dict, we have row_no, so we extract that row from dataframe for all documents
-    rows = [dataframe.iloc[doc.metadata["row_no"]] for doc in documents]
-    return str(pd.DataFrame(rows).to_markdown())        
+def _get_formatted_dataframe(dataframe: pd.DataFrame, documents: List[Document]) -> tuple[str, str]:
+   """
+   Get the formatted DataFrame for display purposes.
+   """
+   # Group by source/filename and sheet
+   file_sheet_rows = {}
+   for doc in documents:
+       source = doc.metadata["source"]
+       sheet = doc.metadata["sheet"]
+       row_no = doc.metadata["row_no"]
+       
+       if source not in file_sheet_rows:
+           file_sheet_rows[source] = {}
+           
+       if sheet not in file_sheet_rows[source]:
+           file_sheet_rows[source][sheet] = []
+           
+       file_sheet_rows[source][sheet].append(str(row_no))
+
+   # Collect all rows
+   all_rows = [dataframe.iloc[doc.metadata["row_no"]] for doc in documents]
+   
+   # Format citations
+   citation_parts = []
+   for source, sheets in file_sheet_rows.items():
+       for sheet, rows in sheets.items():
+           citation_parts.append(f"*Filename:*{source}: *Sheet name:* {sheet}: *Row No's:* [{', '.join(rows)}]")
+   
+   citations = "\n".join(citation_parts)
+   
+   return str(pd.DataFrame(all_rows).to_markdown()), citations
 
 # ----- Nodes -----
 def general_query_or_spam_filter(data: AgentState) -> AgentState:
@@ -243,6 +268,9 @@ def tool_execution_node(data: AgentState) -> AgentState:
         
         # update the intermediate steps
         result = [("Tool Execution/Intermediate steps/Repl", repl_agent_outcome["intermediate_steps"]),("Tool Execution/Repl", repl_agent_outcome["output"])]
+        
+        # get the sheet name from the dataframe
+        data["citations"] = f"Sheet name: {data['dataframe'].sheet_name}"
     elif selected_tool == "semantic_search_tool_for_dataframe":
         # Apply Hyde to decompose query - to get more semantic match
         decomposed_passages = hyde_query_decomposition_chain.invoke(input={
@@ -259,7 +287,7 @@ def tool_execution_node(data: AgentState) -> AgentState:
         logger.info("[Inside Tool Execution Node] Connection to Qdrant closed: %s", is_closed)
         
         # Get the Dataframe based on Semantic Search Results
-        formatted_dataframe = _get_formatted_dataframe(data["dataframe"], semantic_search_results)
+        formatted_dataframe, formatted_citations = _get_formatted_dataframe(data["dataframe"], semantic_search_results)
         
         # Analyse the results of the semantic search tool
         semantic_search_results_analysis = semantic_search_results_analysis_chain.invoke(input={
@@ -269,6 +297,9 @@ def tool_execution_node(data: AgentState) -> AgentState:
         
         # Update the intermediate steps
         result = [("Tool Execution/Intermediate steps/Semantic Search/", formatted_dataframe), ("Tool Execution/Semantic Search", semantic_search_results_analysis.analysed_response)] 
+        
+        # update the citations
+        data["citations"] = formatted_citations
                
     # Update the intermediate steps
     data["intermediate_steps"].extend(result)    
@@ -408,4 +439,4 @@ def generate_response(user_id: int, file_path: str, original_query: str, chat_hi
     logger.info("Running the agent... %s", agent_state)
     final_state = app.invoke(agent_state, config=langfuse_configuration)
     logger.info("Agent execution completed... %s", final_state)
-    return final_state["final_response"]
+    return final_state["final_response"], final_state["citations"]

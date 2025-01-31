@@ -266,11 +266,11 @@ class ConversationView(generics.CreateAPIView):
         file_path = str(uploaded_file.file)
 
         # Perform your domain logic or call a helper function
-        response_text = generate_response(
+        response_text, citations = generate_response(
             user_id=user.id,
             file_path=file_path,
             original_query=original_query,
             chat_history=chat_history
         )
-        return Response(response_text, status=status.HTTP_200_OK) 
+        return Response({"response": response_text, "citations": citations}, status=status.HTTP_200_OK) 
         
