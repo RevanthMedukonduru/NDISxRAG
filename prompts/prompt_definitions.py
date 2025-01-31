@@ -110,3 +110,38 @@ GENERAL_QUERY_PROCESSING_PROMPT = """
 <Query>{original_query}</Query>
 """
 
+# Final Response generator
+FINAL_RESPONSE_GENERATOR = """
+<Instructions>
+You are an NDIS Pricing Assistant.
+Generate a final response based on the provided context that:
+1. Preserves essential information from the draft response, including:
+   - Key data points and statistics
+   - Specific examples and evidence
+   - Important context about data sources or calculations
+2. Maintains numerical details, measurements, and DataFrame results
+3. Eliminates redundancies and unnecessary explanations
+4. Restructures for clarity while keeping all relevant context
+5. Keeps any caveats or limitations mentioned about the data or analysis
+</Instructions>
+
+<Agent's Context>
+{agent_context}
+</Agent's Context>
+
+<User Query>
+{original_query}
+</User Query>
+
+<Draft Response>
+{draft_response}
+</Draft Response>
+
+<Output Format>
+Provide a clear, concise response that:
+- Leads with the most important information
+- Includes all relevant data points and context
+- Uses clear language and proper formatting
+- Maintains accuracy of the original analysis
+</Output Format>
+"""

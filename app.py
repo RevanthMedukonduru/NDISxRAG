@@ -1,8 +1,9 @@
-import json
 from pathlib import Path
+import re
 import pandas as pd
 import streamlit as st
 import requests
+from typing import Dict, Any
 
 # Define constants
 BASE_URL = "http://web:8000"  # Update this with your backend server's base URL
@@ -209,83 +210,151 @@ def admin_dashboard_page():
                 st.write(f"### Sheet {sheet_idx + 1}: {sheet_name}")
                 st.dataframe(data=sheet_df, height=1000, width=1500)
 
-def _clean_markdown(text):
+def clean_markdown(text: str) -> str:
     """
-    Cleans the markdown text to ensure proper formatting for Streamlit.
-    - Strips unwanted spaces and newlines.
-    - Replaces single `\n` with double for paragraphs.
-    - Fixes any encoding issues.
+    Clean and normalize markdown formatting.
+    
+    Args:
+        text (str): Raw markdown text
+        
+    Returns:
+        str: Cleaned markdown text
     """
+    if not text:
+        return text
+        
     text = text.strip().strip('"').strip("'") # Remove leading and trailing quotes if they exist
     text = text.strip()  # Remove excess whitespace
     text = text.replace("\n", "\n\n")  # Convert single newlines to paragraphs
     text = text.replace("\\n", "\n")  # If backend sends escaped newlines
     text = text.replace("\t", "    ")  # Replace tabs with spaces
-    return text
+    return text.strip()
+
+def format_message(msg: Dict) -> str:
+    """
+    Format a message for display, adding appropriate styling.
+    
+    Args:
+        msg (Dict): Message dictionary containing role and content
+        
+    Returns:
+        str: Formatted message content
+    """
+    content = msg["content"]
+    
+    # Add role-specific formatting if needed
+    if msg["role"] == "assistant":
+        # Ensure code blocks are properly formatted
+        content = re.sub(r'(?s)```(\w+)?\n(.*?)```', r'```\1\n\2\n```', content)
+        
+    return clean_markdown(content)
 
 def chat_page():
     """
     A Streamlit page that:
-      - Displays a chat interface with user/assistant messages,
-      - Captures user input,
-      - Sends conversation history to Django at /chat/,
-      - Streams and displays the assistant's response chunk-by-chunk.
+      - Displays a chat interface with user/assistant messages
+      - Captures user input
+      - Sends conversation history to Django backend
+      - Streams and displays the assistant's response with proper markdown
     """
+    st.title("NDIS Pricing AI Assistant")
     
-    # headers
+    # Initialize conversation history
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+        
+    # Get API token from session
+    token = st.session_state.get('token')
+    if not token:
+        st.error("Please log in first")
+        return
+        
+    # Set up request headers
     headers = {
-        "Authorization": f"Token {st.session_state.get('token')}"
+        "Authorization": f"Token {token}",
+        "Content-Type": "application/json"
     }
 
-    st.title("Chat Page")
+    # Custom CSS for better markdown display
+    st.markdown("""
+        <style>
+            .stMarkdown {
+                line-height: 1.5;
+                margin-bottom: 1rem;
+            }
+            .stMarkdown p {
+                margin-bottom: 1rem;
+            }
+            .stMarkdown ul, .stMarkdown ol {
+                margin-bottom: 1rem;
+                padding-left: 2rem;
+            }
+            .stMarkdown li {
+                margin-bottom: 0.5rem;
+            }
+            .stMarkdown pre {
+                margin-bottom: 1rem;
+                padding: 1rem;
+                background-color: #f6f8fa;
+                border-radius: 6px;
+            }
+            .stMarkdown code {
+                padding: 0.2em 0.4em;
+                background-color: #f6f8fa;
+                border-radius: 3px;
+            }
+        </style>
+    """, unsafe_allow_html=True)
 
-    # 1. Initialize the conversation in session state
-    if "messages" not in st.session_state:
-        # Each message is dict: {"role": "user"/"assistant", "content": "..."}
-        st.session_state.messages = []
-
-    # 2. Display existing messages
+    # Display existing conversation
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+            formatted_content = format_message(msg)
+            st.markdown(formatted_content)
 
-    # 3. Chat input for user
-    prompt = st.chat_input("Ask something...")
-    if prompt:
-        # (a) Add the user message to session history
+    # Handle new user input
+    if prompt := st.chat_input("Example: What is the price for washing dishes in south australia?"):
+        # Add and display user message
         st.session_state.messages.append({"role": "user", "content": prompt})
-
-        # (b) Immediately display in chat
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # (c) Prepare to display the assistant response
+        # Prepare and display assistant response
         with st.chat_message("assistant"):
-            message_placeholder = st.empty()  # for displaying the final response
-            full_response = ""
-
-            # (d) Build the request payload
-            payload = {"chat_history": st.session_state.messages, "query": prompt}
-
-            # (e) Make a POST request to your Django endpoint
-            django_url = f"{BASE_URL}/rag/chat/"
-
+            # Keep loading message placeholder until response is received
+            message_placeholder = st.empty()
+            message_placeholder.markdown("Your AI Assistant is analysing...")
+            
             try:
-                response = requests.post(django_url, json=payload, headers=headers, timeout=120)
+                # Send request to Django backend using BASE_URL
+                response = requests.post(
+                    f"{BASE_URL}/rag/chat/",
+                    json={
+                        "chat_history": st.session_state.messages,
+                        "query": prompt
+                    },
+                    headers=headers,
+                    timeout=120
+                )
                 response.raise_for_status()
                 
-                # Clean and display the full response
-                full_response = _clean_markdown(response.text)
-                message_placeholder.markdown(full_response)
-
+                # Clean and display response
+                cleaned_response = clean_markdown(response.text)
+                message_placeholder.markdown(cleaned_response)
+                
+                # Store assistant response
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": cleaned_response
+                })
+                
             except requests.RequestException as e:
-                full_response = f"**Error:** Could not reach backend. Details: {str(e)}"
-                message_placeholder.markdown(full_response)
-
-        # (g) Store the assistant's final message in session
-        st.session_state.messages.append({"role": "assistant", "content": full_response})
-
-
+                error_msg = f"**Error:** Failed to get response. {str(e)}"
+                message_placeholder.markdown(error_msg)
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": error_msg
+                })
     
 # ----------------------------
 # Main App

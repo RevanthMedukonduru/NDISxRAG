@@ -9,7 +9,7 @@ from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe
 from pydantic import BaseModel, Field
 import pandas as pd
 from prompts.prompt_helper import get_custom_prompt_template
-from prompts.prompt_definitions import QUERY_DECOMPOSITION_BASED_ON_CHAT_HISTORY_AND_AGENT_CONTEXT_PROMPT, TOOL_SELECTION_PROMPT, SYSTEM_PROMPT_FOR_REPL_TOOL, QUERY_DECOMPOSITION_BASED_ON_HYDE, SEMANTIC_SEARCH_RESULTS_ANALYSIS_PROMPT, SPAM_DETECTION_PROMPT, AGENT_CONTEXT, GENERAL_QUERY_PROCESSING_PROMPT
+from prompts.prompt_definitions import QUERY_DECOMPOSITION_BASED_ON_CHAT_HISTORY_AND_AGENT_CONTEXT_PROMPT, TOOL_SELECTION_PROMPT, SYSTEM_PROMPT_FOR_REPL_TOOL, QUERY_DECOMPOSITION_BASED_ON_HYDE, SEMANTIC_SEARCH_RESULTS_ANALYSIS_PROMPT, SPAM_DETECTION_PROMPT, AGENT_CONTEXT, GENERAL_QUERY_PROCESSING_PROMPT, FINAL_RESPONSE_GENERATOR
 from Embedding.vector_store import QdrantStore
 from observability.langfuse_tracer import get_langfuse_configuration
 from NDISxRAG.settings import LOGGER_NAME
@@ -42,6 +42,9 @@ spam_detection_prompt = get_custom_prompt_template(
 )
 general_query_processing_prompt = get_custom_prompt_template(
     standalone_prompt_template = GENERAL_QUERY_PROCESSING_PROMPT
+)
+final_response_generator_prompt = get_custom_prompt_template(
+    standalone_prompt_template = FINAL_RESPONSE_GENERATOR
 )
 
 # Pydantic Classes
@@ -81,6 +84,12 @@ class GeneralQueryProcessing(BaseModel):
     General Query Processing Pydantic Model.
     """
     response: str = Field(description="Response to the general query.")
+
+class FinalResponse(BaseModel):
+    """
+    Final Response Pydantic Model.
+    """
+    response: str = Field(description="Final response to the user query.")
     
 # Binded LLMs
 structured_output_for_query_rewrite = chat_model_claude.with_structured_output(schema=QueryRewrite)
@@ -89,6 +98,7 @@ structured_output_for_hyde_query_decomposition = chat_model_claude.with_structur
 structured_output_for_semantic_search_results_analysis = chat_model_gpt.with_structured_output(schema=SemanticSearchResultsAnalysis)
 structured_output_for_spam_detection = chat_model_gpt.with_structured_output(schema=QueryClassification)
 structured_output_for_general_query_processing = chat_model_gpt.with_structured_output(schema=GeneralQueryProcessing)
+structured_output_for_final_response = chat_model_claude.with_structured_output(schema=FinalResponse)
 
 # Chains
 query_rewrite_chain = query_rewrite_prompt | structured_output_for_query_rewrite
@@ -97,6 +107,7 @@ hyde_query_decomposition_chain = hyde_query_decomposition_prompt | structured_ou
 semantic_search_results_analysis_chain = semantic_search_results_analysis_prompt | structured_output_for_semantic_search_results_analysis
 spam_detection_chain = spam_detection_prompt | structured_output_for_spam_detection
 general_query_processing_chain = general_query_processing_prompt | structured_output_for_general_query_processing
+final_response_generator_chain = final_response_generator_prompt | structured_output_for_final_response
 
 # Agents
 def get_repl_agent(df: pd.DataFrame) -> Any:
@@ -267,12 +278,16 @@ def final_response(data: AgentState) -> AgentState:
     """
     Analyzes the results of the tool execution and provides the final response.
     """
-    # Retrieve the last intermediate step
+    # Retrieve the draft response
     logger.info("Final Response: %s", data)
     last_intermediate_step = data["intermediate_steps"][-1]
+    draft_response = last_intermediate_step[1]
     
-    # Update the final response
-    data["final_response"] = last_intermediate_step[1]
+    # Generate the final response
+    if data["query_category"] == "CONTEXTUAL":
+        data["final_response"] = final_response_generator_chain.invoke(input={"original_query": data["rewritten_independent_query"], "draft_response": draft_response, "agent_context": data["agent_context"]}).response
+    else:
+        data["final_response"] = draft_response
     return data      
 
 def spam_query_processor(data: AgentState) -> AgentState:
