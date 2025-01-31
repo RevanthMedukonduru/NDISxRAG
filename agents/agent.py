@@ -327,6 +327,7 @@ def spam_query_processor(data: AgentState) -> AgentState:
     """
     # Update the intermediate steps
     data["intermediate_steps"] = data["intermediate_steps"] + [("Spam Query Processing", "Sorry, I cannot answer this query.")]
+    data["citations"].append("Spam Query Processing (No citations available)")
     return data
 
 def general_query_processor(data: AgentState) -> AgentState:
@@ -338,6 +339,7 @@ def general_query_processor(data: AgentState) -> AgentState:
     
     # Update the intermediate steps
     data["intermediate_steps"].append(("General Query Processing", general_query_response.response))
+    data["citations"].append("General Query Processing (No citations available)")
     return data
   
 def query_router(data: AgentState) -> AgentState:
@@ -404,7 +406,7 @@ def graph_builder():
     return app
 
 # Run the agent
-def generate_response(user_id: int, file_path: str, original_query: str, chat_history: List[str]) -> dict:
+def generate_response(user_id: int, file_path: str, original_query: str, chat_history: List[str]) -> tuple[str, List[str]]:
     """
     Run the agent.
     """
@@ -429,7 +431,8 @@ def generate_response(user_id: int, file_path: str, original_query: str, chat_hi
         "chat_history": chat_history,
         "intermediate_steps": [],
         "final_response": "",
-        "agent_context": AGENT_CONTEXT
+        "agent_context": AGENT_CONTEXT,
+        "citations": []
     }
     
     # Get Langfuse Configuration
