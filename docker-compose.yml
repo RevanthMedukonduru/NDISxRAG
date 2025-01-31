@@ -26,6 +26,10 @@ services:
       DB_NAME: "${DB_MYSQL_NAME}"  
       DB_USER: "${DB_MYSQL_USER}"  
       DB_PASSWORD: "${DB_MYSQL_PASSWORD}"  
+    deploy:
+      resources:
+        limits:
+          memory: "512m"
 
   # -----------------------
   # Celery Worker
@@ -46,6 +50,10 @@ services:
       - DB_NAME=${DB_MYSQL_NAME}
       - DB_USER=${DB_MYSQL_USER}
       - DB_PASSWORD=${DB_MYSQL_PASSWORD}
+    deploy:
+      resources:
+        limits:
+          memory: "512m"
 
   # -----------------------
   # Redis (Broker & Result)
@@ -62,6 +70,10 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+    deploy:
+      resources:
+        limits:
+          memory: "256m"
 
   # -----------------------
   # Qdrant Service
@@ -79,7 +91,7 @@ services:
       resources:
         limits:
           cpus: "1"
-          memory: "4g"
+          memory: "1.5g"
 
   # -----------------------
   # MySQL Database
@@ -102,6 +114,10 @@ services:
       timeout: 5s
       retries: 10
       interval: 10s  
+    deploy:
+      resources:
+        limits:
+          memory: "512m"
 
   # -----------------------
   # Streamlit Frontend
@@ -117,3 +133,7 @@ services:
       - "8501:8501"
     depends_on:
       - web
+    deploy:
+      resources:
+        limits:
+          memory: "512m"
