@@ -259,7 +259,7 @@ def chat_page():
     """
     st.title("NDIS Pricing AI Assistant")
     
-    # Initialize conversation history
+    # Initialize conversation history only if it doesn't exist
     if "messages" not in st.session_state:
         st.session_state.messages = []
         
@@ -311,56 +311,71 @@ def chat_page():
         with st.chat_message(msg["role"]):
             formatted_content = format_message(msg)
             st.markdown(formatted_content)
+            if msg["role"] == "assistant" and "citations" in msg and msg["citations"]:
+                with st.expander("Sources", expanded=False):
+                    st.markdown(f"- {msg['citations']}")
 
     # Handle new user input
     if prompt := st.chat_input("Example: What is the price for washing dishes in south australia?"):
-        # Add and display user message
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        # Prepare and display assistant response
-        with st.chat_message("assistant"):
-            # Keep loading message placeholder until response is received
-            message_placeholder = st.empty()
-            message_placeholder.markdown("Your AI Assistant is analysing...")
+        # Check if this is a new message to prevent duplication
+        if not any(msg["role"] == "user" and msg["content"] == prompt 
+                  for msg in st.session_state.messages[-2:]):
             
-            try:
-                # Send request to Django backend using BASE_URL
-                response = requests.post(
-                    f"{BASE_URL}/rag/chat/",
-                    json={
-                        "chat_history": st.session_state.messages,
-                        "query": prompt
-                    },
-                    headers=headers,
-                    timeout=120
-                )
-                response.raise_for_status()
+            # Add and display user message
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
+
+            # Prepare and display assistant response
+            with st.chat_message("assistant"):
+                message_placeholder = st.empty()
+                message_placeholder.markdown("Your AI Assistant is analysing...")
                 
-                # Clean and display response
-                cleaned_response = clean_markdown(response.json().get("response", ""))
-                citations = response.json().get("citations", "")
-                message_placeholder.markdown(cleaned_response)
-                
-                # place the citations in the same message placeholder, with expander
-                if citations:
-                    with st.expander("Sources", expanded=False):
-                        st.markdown(f"- {citations}")
-                
-                # Store assistant response
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": cleaned_response
-                })
-                
-            except requests.RequestException as e:
-                error_msg = f"**Error:** Failed to get response. {str(e)}"
-                message_placeholder.markdown(error_msg)
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": error_msg
-                })
+                try:
+                    # Send request to Django backend using BASE_URL
+                    response = requests.post(
+                        f"{BASE_URL}/rag/chat/",
+                        json={
+                            "chat_history": st.session_state.messages,
+                            "query": prompt
+                        },
+                        headers=headers,
+                        timeout=120
+                    )
+                    response.raise_for_status()
+                    
+                    # Process response
+                    cleaned_response = clean_markdown(response.json().get("response", ""))
+                    citations = response.json().get("citations", "")
+                    
+                    # Check if this response is already present
+                    if not any(msg["role"] == "assistant" and msg["content"] == cleaned_response 
+                             for msg in st.session_state.messages[-2:]):
+                        
+                        # Store assistant response with citations
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": cleaned_response,
+                            "citations": citations
+                        })
+                    
+                    # Update the placeholder with the response
+                    message_placeholder.markdown(cleaned_response)
+                    
+                except requests.RequestException as e:
+                    error_msg = f"**Error:** Failed to get response. {str(e)}"
+                    message_placeholder.markdown(error_msg)
+                    if not any(msg["role"] == "assistant" and msg["content"] == error_msg 
+                             for msg in st.session_state.messages[-2:]):
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": error_msg
+                        })
+
+    # Add a clear chat button
+    if st.sidebar.button("Clear Chat", help="Click to clear the chat history"):
+        st.session_state.messages = []
+        st.rerun()
     
 # ----------------------------
 # Main App
@@ -379,12 +394,15 @@ def main():
     st.sidebar.title("Navigation")
     page = st.sidebar.radio("Go to", ["Login", "Signup", "Dashboard", "Chat"])
     
-    # Add a logout button to the sidebar
+    # Add a logout button to the sidebar (Place it at the bottom left)
     if st.session_state["logged_in"]:
-        if st.sidebar.button("Logout"):
+        if st.sidebar.button("Logout", key="logout_button", help="Click to log out"):
             st.session_state["logged_in"] = False
             st.session_state["username"] = None
-            st.success("You have been logged out.")
+            st.session_state["is_staff"] = False
+            st.session_state["token"] = None
+            st.session_state["show_users"] = False
+            st.session_state["original_statuses"] = {}
 
     # Route to the selected page
     if page == "Login":
